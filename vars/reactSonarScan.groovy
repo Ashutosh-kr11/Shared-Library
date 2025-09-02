@@ -1,7 +1,7 @@
 #!/usr/bin/env groovy
 
 /**
- * React Static Code Analysis with SonarQube
+ * React Static Code Analysis with SonarQube (No Tests)
  * @param config Map of configuration parameters
  * @return Current build result
  */
@@ -20,7 +20,6 @@ def call(Map config = [:]) {
         //enableQualityGate: false,
         cleanWorkspace: true,
         installCommand: 'npm install',
-        testCommand: 'npm test',
         notifyEmail: '',
         exclusions: '**/node_modules/**,**/*.spec.js,**/*.spec.jsx,**/*.spec.ts,**/*.spec.tsx,**/coverage/**,**/build/**,**/dist/**',
         coverage: false,
@@ -49,11 +48,12 @@ def call(Map config = [:]) {
     
     try {
         stage('Checkout') {
-            checkout scm
-            
-            // If specific repository URL is provided, use that instead
             if (config.repoUrl) {
                 git url: config.repoUrl, branch: config.branch
+                // Store the repository URL for email reporting
+                env.REPOSITORY_URL = config.repoUrl
+            } else {
+                error "Repository URL must be provided in the 'repoUrl' parameter"
             }
         }
         
@@ -61,18 +61,8 @@ def call(Map config = [:]) {
             sh config.installCommand
         }
         
-        if (config.testCommand != null && config.testCommand != '') {
-            stage('Run Tests') {
-                try {
-                    sh config.testCommand
-                } catch (Exception e) {
-                    echo "Tests failed but continuing with analysis: ${e.message}"
-                }
-            }
-        }
-        
         stage('SonarQube Analysis') {
-            // Build the scanner command with all necessary options
+            // Build the scanner command
             def scannerCommand = "${scannerHome}/bin/sonar-scanner \\\n"
             scannerCommand += "-Dsonar.projectKey=${config.projectKey} \\\n"
             scannerCommand += "-Dsonar.projectName='${config.projectName}' \\\n"
@@ -80,7 +70,7 @@ def call(Map config = [:]) {
             scannerCommand += "-Dsonar.sourceEncoding=UTF-8 \\\n"
             scannerCommand += "-Dsonar.host.url=${config.sonarUrl} \\\n"
             scannerCommand += "-Dsonar.exclusions=${config.exclusions} \\\n"
-            scannerCommand += "-Dsonar.links.homepage=${config.repoUrl ?: env.GIT_URL ?: ''}"
+            scannerCommand += "-Dsonar.links.homepage=${config.repoUrl}"
             
             // Add TypeScript specific settings if enabled
             if (config.typescript) {
@@ -131,8 +121,8 @@ def call(Map config = [:]) {
                     }
                 }
             }
-        }
-        ***/
+        } ***/
+        
         // Build successful
         currentBuild.result = 'SUCCESS'
         echo 'SonarQube analysis completed successfully!'
@@ -145,7 +135,7 @@ def call(Map config = [:]) {
         return [status: 'FAILURE', qualityGate: QUALITY_GATE_STATUS, error: e.message]
         
     } finally {
-        // Always send notification if email is provided
+        // Send email notification if email is provided
         def currentResult = currentBuild.result ?: 'UNKNOWN'
         
         if (config.notifyEmail) {
@@ -179,7 +169,7 @@ def call(Map config = [:]) {
                         </tr>
                         <tr>
                             <th>Repository</th>
-                            <td><a href="${config.repoUrl ?: env.GIT_URL ?: 'Not available'}">${config.repoUrl ?: env.GIT_URL ?: 'Not available'}</a></td>
+                            <td><a href="${env.REPOSITORY_URL ?: config.repoUrl ?: 'Not available'}">${env.REPOSITORY_URL ?: config.repoUrl ?: 'Not available'}</a></td>
                         </tr>
                         <tr>
                             <th>Build Status</th>
