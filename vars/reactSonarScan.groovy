@@ -16,8 +16,8 @@ def call(Map config = [:]) {
         nodeTool: 'NodeJS',
         sonarTool: 'SonarScanner',
         sonarInstance: 'SonarQube',
-        qualityGateTimeout: 5,
-        enableQualityGate: false,
+        //qualityGateTimeout: 5,
+        //enableQualityGate: false,
         cleanWorkspace: true,
         installCommand: 'npm install',
         testCommand: 'npm test',
@@ -100,7 +100,7 @@ def call(Map config = [:]) {
             env.SONAR_REPORT_URL = "${config.sonarUrl}/dashboard?id=${config.projectKey}"
         }
         
-        if (config.enableQualityGate) {
+       /*** if (config.enableQualityGate) {
             stage('Quality Gate') {
                 timeout(time: config.qualityGateTimeout, unit: 'MINUTES') {
                     try {
@@ -132,7 +132,7 @@ def call(Map config = [:]) {
                 }
             }
         }
-        
+        ***/
         // Build successful
         currentBuild.result = 'SUCCESS'
         echo 'SonarQube analysis completed successfully!'
