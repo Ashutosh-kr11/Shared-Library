@@ -1,7 +1,9 @@
 #!/usr/bin/env groovy
 
 /**
- * React Static Code Analysis with SonarQube (No Tests)
+ * React Static Code Analysis with SonarQube
+ * Optimized for Pipeline script from SCM or direct pipeline definition
+ * 
  * @param config Map of configuration parameters
  * @return Current build result
  */
@@ -11,7 +13,7 @@ def call(Map config = [:]) {
         projectKey: '',
         projectName: '',
         sonarUrl: 'http://localhost:9000',
-        repoUrl: '',
+        repoUrl: '',  // Optional when using Pipeline script from SCM
         branch: 'main',
         nodeTool: 'NodeJS',
         sonarTool: 'SonarScanner',
@@ -48,21 +50,31 @@ def call(Map config = [:]) {
     
     try {
         stage('Checkout') {
+            // Use checkout scm if no repoUrl is provided (Pipeline from SCM)
+            // Otherwise use git checkout with the provided URL
             if (config.repoUrl) {
                 git url: config.repoUrl, branch: config.branch
-                // Store the repository URL for email reporting
                 env.REPOSITORY_URL = config.repoUrl
             } else {
-                error "Repository URL must be provided in the 'repoUrl' parameter"
+                checkout scm
+                // Try to get the repository URL from the current build
+                try {
+                    env.REPOSITORY_URL = sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+                } catch (Exception e) {
+                    echo "Could not determine repository URL: ${e.message}"
+                    env.REPOSITORY_URL = 'Not available'
+                }
             }
+            
+            echo "Using repository: ${env.REPOSITORY_URL}"
         }
         
         stage('Install Dependencies') {
-            sh config.installCommand
+            sh "${config.installCommand}"
         }
         
         stage('SonarQube Analysis') {
-            // Build the scanner command
+            // Build the scanner command with all necessary options
             def scannerCommand = "${scannerHome}/bin/sonar-scanner \\\n"
             scannerCommand += "-Dsonar.projectKey=${config.projectKey} \\\n"
             scannerCommand += "-Dsonar.projectName='${config.projectName}' \\\n"
@@ -70,7 +82,7 @@ def call(Map config = [:]) {
             scannerCommand += "-Dsonar.sourceEncoding=UTF-8 \\\n"
             scannerCommand += "-Dsonar.host.url=${config.sonarUrl} \\\n"
             scannerCommand += "-Dsonar.exclusions=${config.exclusions} \\\n"
-            scannerCommand += "-Dsonar.links.homepage=${config.repoUrl}"
+            scannerCommand += "-Dsonar.links.homepage=${env.REPOSITORY_URL ?: 'Not available'}"
             
             // Add TypeScript specific settings if enabled
             if (config.typescript) {
@@ -83,11 +95,13 @@ def call(Map config = [:]) {
                 scannerCommand += " \\\n-Dsonar.javascript.lcov.reportPaths=${config.coveragePath}"
             }
             
+            // Run the SonarQube analysis
             withSonarQubeEnv(config.sonarInstance) {
                 sh scannerCommand
             }
             
             env.SONAR_REPORT_URL = "${config.sonarUrl}/dashboard?id=${config.projectKey}"
+            echo "SonarQube report available at: ${env.SONAR_REPORT_URL}"
         }
         
        /*** if (config.enableQualityGate) {
@@ -121,7 +135,7 @@ def call(Map config = [:]) {
                     }
                 }
             }
-        } ***/
+        }  ***/
         
         // Build successful
         currentBuild.result = 'SUCCESS'
@@ -135,7 +149,7 @@ def call(Map config = [:]) {
         return [status: 'FAILURE', qualityGate: QUALITY_GATE_STATUS, error: e.message]
         
     } finally {
-        // Send email notification if email is provided
+        // Always send notification if email is provided
         def currentResult = currentBuild.result ?: 'UNKNOWN'
         
         if (config.notifyEmail) {
@@ -169,7 +183,7 @@ def call(Map config = [:]) {
                         </tr>
                         <tr>
                             <th>Repository</th>
-                            <td><a href="${env.REPOSITORY_URL ?: config.repoUrl ?: 'Not available'}">${env.REPOSITORY_URL ?: config.repoUrl ?: 'Not available'}</a></td>
+                            <td><a href="${env.REPOSITORY_URL ?: 'Not available'}">${env.REPOSITORY_URL ?: 'Not available'}</a></td>
                         </tr>
                         <tr>
                             <th>Build Status</th>
