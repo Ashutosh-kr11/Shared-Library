@@ -16,7 +16,7 @@ def call(Map config = [:]) {
     // Run the scan
     node {
         try {
-            stage('Checkout') {
+            stage('Checkout SCM') {
                 checkout scm
             }
             
@@ -30,14 +30,19 @@ def call(Map config = [:]) {
                 """
             }
             
-            stage('Scan Dependencies') {
+            stage('Prepare Scan Environment') {
                 sh """
-                    # Activate virtual environment
-                    . ${venvDir}/bin/activate
-                    
                     # Create report file
                     echo "Python Dependency Scan Report - \$(date '+%Y-%m-%d %H:%M:%S')" > ${reportName}
                     echo "=======================================" >> ${reportName}
+                    echo "Repository: \$(git config --get remote.origin.url)" >> ${reportName}
+                """
+            }
+            
+            stage('Scan Requirements File') {
+                sh """
+                    # Activate virtual environment
+                    . ${venvDir}/bin/activate
                     
                     # Check for requirements.txt
                     if [ -f requirements.txt ]; then
@@ -53,6 +58,13 @@ def call(Map config = [:]) {
                     else
                         echo -e "\\n\\nNo requirements.txt found" >> ${reportName}
                     fi
+                """
+            }
+            
+            stage('Scan Project TOML') {
+                sh """
+                    # Activate virtual environment
+                    . ${venvDir}/bin/activate
                     
                     # Check for pyproject.toml
                     if [ -f pyproject.toml ]; then
@@ -104,6 +116,13 @@ except Exception as e:
                     else
                         echo -e "\\n\\nNo pyproject.toml found" >> ${reportName}
                     fi
+                """
+            }
+            
+            stage('Scan Installed Packages') {
+                sh """
+                    # Activate virtual environment
+                    . ${venvDir}/bin/activate
                     
                     # Scan installed packages in the environment
                     echo -e "\\n\\n## SCANNING ALL INSTALLED PACKAGES ##" >> ${reportName}
@@ -115,11 +134,17 @@ except Exception as e:
                     
                     echo -e "\\n\\n## SCANNING INSTALLED PACKAGES WITH SAFETY ##" >> ${reportName}
                     safety check --output text >> ${reportName} 2>&1 || echo -e "\\nSafety scan completed with issues" >> ${reportName}
+                """
+            }
+            
+            stage('Generate Security Report') {
+                sh """
+                    # Activate virtual environment
+                    . ${venvDir}/bin/activate
                     
                     # Add a comprehensive summary section
                     echo -e "\\n\\n## SUMMARY ##" >> ${reportName}
                     echo "Timestamp: \$(date '+%Y-%m-%d %H:%M:%S')" >> ${reportName}
-                    echo -e "Repository: \$(git config --get remote.origin.url)" >> ${reportName}
                     
                     # Count vulnerabilities for summary
                     echo -e "\\n## VULNERABILITY FINDINGS ##" >> ${reportName}
@@ -151,23 +176,25 @@ except Exception as e:
             echo "Error during dependency scan: ${e.getMessage()}"
         } 
         finally {
-            // Archive artifacts
-            archiveArtifacts artifacts: reportName, allowEmptyArchive: true
-            scanResults.reportUrl = "${BUILD_URL}artifact/${reportName}"
-            
-            // Send email if configured
-            if (emailRecipients) {
-                emailext(
-                    subject: "Python Dependency Scan Results - ${currentBuild.result}",
-                    body: "Python dependency scan completed with result: ${currentBuild.result}\n\nSee the report for details: ${BUILD_URL}artifact/${reportName}",
-                    attachmentsPattern: reportName,
-                    to: emailRecipients,
-                    mimeType: 'text/plain'
-                )
+            stage('Publish Results') {
+                // Archive artifacts
+                archiveArtifacts artifacts: reportName, allowEmptyArchive: true
+                scanResults.reportUrl = "${BUILD_URL}artifact/${reportName}"
+                
+                // Send email if configured
+                if (emailRecipients) {
+                    emailext(
+                        subject: "Python Dependency Scan Results - ${currentBuild.result}",
+                        body: "Python dependency scan completed with result: ${currentBuild.result}\n\nSee the report for details: ${BUILD_URL}artifact/${reportName}",
+                        attachmentsPattern: reportName,
+                        to: emailRecipients,
+                        mimeType: 'text/plain'
+                    )
+                }
+                
+                // Cleanup
+                sh "rm -rf ${venvDir} pyproject_deps.txt vuln_count.txt || true"
             }
-            
-            // Cleanup
-            sh "rm -rf ${venvDir} pyproject_deps.txt vuln_count.txt || true"
         }
     }
     
